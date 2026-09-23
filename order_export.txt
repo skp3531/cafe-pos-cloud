@@ -1,0 +1,39 @@
+  const handleExportCSV = () => {
+    const headers = ['Invoice', 'Date', 'Customer', 'Created By', 'Items', 'Total Amount', 'Status', 'Payment Mode'];
+    const rows = filteredOrders.map(o => {
+      const c = customers.find(x => x.id === o.customerId);
+      const cName = c ? c.name : 'Walk-in Customer';
+      const itemsStr = o.items.map(i => `${i.qty}x ${i.name}`).join(' | ');
+      return [
+        o.invoiceNumber || `Order #${o.id}`,
+        new Date(o.date).toLocaleString('en-IN'),
+        cName,
+        o.createdBy || 'Unknown',
+        itemsStr,
+        o.total,
+        o.status,
+        o.paymentMode
+      ];
+    });
+    exportToCSV(`Orders_${new Date().toISOString().split('T')[0]}`, [headers, ...rows]);
+  };
+
+  const handlePrintPDF = () => {
+    const headers = ['Invoice', 'Date', 'Customer', 'Created By', 'Items', 'Total Amount', 'Status', 'Payment Mode'];
+    const rows = filteredOrders.map(o => {
+      const c = customers.find(x => x.id === o.customerId);
+      const cName = c ? c.name : 'Walk-in Customer';
+      const itemsStr = o.items.map(i => `${i.qty}x ${i.name}`).join('<br/>');
+      return [
+        o.invoiceNumber || `Order #${o.id}`,
+        new Date(o.date).toLocaleString('en-IN'),
+        cName,
+        o.createdBy || 'Unknown',
+        itemsStr,
+        `Rs. ${o.total}`,
+        o.status,
+        o.paymentMode
+      ];
+    });
+    printReportPDF('Orders Ledger Report', headers, rows);
+  };
