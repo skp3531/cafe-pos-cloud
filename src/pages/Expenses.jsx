@@ -189,7 +189,7 @@ export default function Expenses() {
                 <button type="submit" className="flex-1 bg-brand-primary text-white p-4 rounded-2xl font-bold hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><Plus size={20}/> Save</button>
               </div>
             </form>
-          </div>}
+          </div>
         </div>
       )}
 

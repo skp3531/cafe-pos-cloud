@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from '../db/db';
-import { db, hashPin } from '../db/db';
+import { db, hashPin, logInventoryMovement } from '../db/db';
 import { exportToCSV, printReportPDF } from '../utils/exportUtils';
+import { printOrderReceipt } from '../utils/printUtils';
 import { useCartStore } from '../store/useCartStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useNavigate } from 'react-router-dom';
@@ -28,7 +29,9 @@ export default function Orders() {
   const sales = useLiveQuery(() => db.sales.reverse().limit(1000).toArray()) || [];
   const customers = useLiveQuery(() => db.customers.toArray()) || [];
   const profileSettings = useLiveQuery(() => db.settings.get('profile')) || {};
-  const printSettings = useLiveQuery(() => db.settings.get('print')) || {};
+  const printBasic = useLiveQuery(() => db.settings.get('print')) || {};
+  const printAdvanced = useLiveQuery(() => db.settings.get('printAdvanced')) || {};
+  const printSettings = printAdvanced.data || printBasic;
 
   const clearCart = useCartStore(state => state.clearCart);
   const addItem = useCartStore(state => state.addItem);
@@ -53,10 +56,22 @@ export default function Orders() {
       matchesDate = s.date >= sDate && s.date <= eDate;
     }
     
-    return matchesSearch && matchesFilter && matchesDate;
+    let matchesOwner = true;
+    if (user?.role !== 'owner') {
+      matchesOwner = (s.createdBy === user?.name);
+    }
+    
+    return matchesSearch && matchesFilter && matchesDate && matchesOwner;
   });
 
-  const printReceipt = async (order, cName) => { await printOrderReceipt(order, cName); };;
+  const printReceipt = (order, cName) => { 
+    try {
+      printOrderReceipt(order, cName, printSettings, profileSettings); 
+    } catch(e) {
+      alert("Print Error: " + e.message);
+      console.error(e);
+    }
+  };
 
   
 
@@ -77,11 +92,11 @@ export default function Orders() {
     // Reverse Inventory
     const recipes = await db.recipes.toArray();
     for (let cartItem of order.items) {
-      const itemRecipe = recipes.find(r => r.itemId === cartItem.id);
+      const itemRecipe = recipes.find(r => String(r.itemId) === String(cartItem.id) && r.ingredients?.length > 0) || recipes.find(r => String(r.itemId) === String(cartItem.id));
       if (itemRecipe) {
         for (let ing of itemRecipe.ingredients) {
-          const inv = await db.inventory.get(ing.inventoryId);
-          if (inv) await db.inventory.update(ing.inventoryId, { currentStock: inv.currentStock + (ing.qty * cartItem.qty) });
+          const addition = (ing.qty * cartItem.qty);
+          await logInventoryMovement(ing.inventoryId, addition, 'SALE_REVERSAL', order.id, `Refund ${cartItem.qty}x ${cartItem.name}`);
         }
       }
     }
@@ -94,6 +109,15 @@ export default function Orders() {
     }
 
     await db.sales.update(order.id, { status: 'RETURNED' });
+    await db.audit_logs.add({
+        user: user?.name || 'Cashier',
+        timestamp: new Date().toISOString(),
+        action: 'REFUND_BILL',
+        refId: order.invoiceNumber || order.id,
+        oldValue: 'PAID',
+        newValue: 'RETURNED',
+        reason: 'Manual refund from Orders page'
+    });
     alert('Order successfully refunded and inventory reversed.');
   };
 
@@ -125,14 +149,14 @@ export default function Orders() {
   const handleEdit = async (order, c) => {
     if (!window.confirm(`Are you sure you want to EDIT this order? It will be voided and returned to the cart.`)) return;
     
-    // Reverse Inventory
+    // Reverse Inventory correctly using logInventoryMovement
     const recipes = await db.recipes.toArray();
     for (let cartItem of order.items) {
-      const itemRecipe = recipes.find(r => r.itemId === cartItem.id);
+      const itemRecipe = recipes.find(r => String(r.itemId) === String(cartItem.id) && r.ingredients?.length > 0) || recipes.find(r => String(r.itemId) === String(cartItem.id));
       if (itemRecipe) {
         for (let ing of itemRecipe.ingredients) {
-          const inv = await db.inventory.get(ing.inventoryId);
-          if (inv) await db.inventory.update(ing.inventoryId, { currentStock: inv.currentStock + (ing.qty * cartItem.qty) });
+          const addition = (ing.qty * cartItem.qty);
+          await logInventoryMovement(ing.inventoryId, addition, 'SALE_REVERSAL', order.id, `Edit void ${cartItem.qty}x ${cartItem.name}`);
         }
       }
     }
@@ -145,6 +169,15 @@ export default function Orders() {
 
     await repopulateCart(order, c);
     if (order.discount > 0) setDiscount(0, order.discount);
+    await db.audit_logs.add({
+        user: user?.name || 'Cashier',
+        timestamp: new Date().toISOString(),
+        action: 'VOID_BILL',
+        refId: order.invoiceNumber || order.id,
+        oldValue: order.total,
+        newValue: 0,
+        reason: 'Bill edited and voided back to cart'
+    });
     await db.sales.delete(order.id);
     navigate('/billing');
   };
@@ -155,7 +188,7 @@ export default function Orders() {
     // Reverse Inventory
     const recipes = await db.recipes.toArray();
     for (let cartItem of order.items) {
-      const itemRecipe = recipes.find(r => r.itemId === cartItem.id);
+      const itemRecipe = recipes.find(r => String(r.itemId) === String(cartItem.id));
       if (itemRecipe) {
         for (let ing of itemRecipe.ingredients) {
           const inv = await db.inventory.get(ing.inventoryId);
@@ -210,23 +243,28 @@ export default function Orders() {
   };
 
   const handlePrintPDF = () => {
-    const headers = ['Invoice', 'Date', 'Customer', 'Created By', 'Items', 'Total Amount', 'Status', 'Payment Mode'];
-    const rows = filteredSales.map(o => {
-      const c = customers.find(x => x.id === o.customerId);
-      const cName = c ? c.name : 'Walk-in Customer';
-      const itemsStr = o.items.map(i => `${i.qty}x ${i.name}`).join('<br/>');
-      return [
-        o.invoiceNumber || `Order #${o.id}`,
-        new Date(o.date).toLocaleString('en-IN'),
-        cName,
-        o.createdBy || 'Unknown',
-        itemsStr,
-        `Rs. ${o.total}`,
-        o.status,
-        o.paymentMode
-      ];
-    });
-    printReportPDF('Orders Ledger Report', headers, rows);
+    try {
+      const headers = ['Invoice', 'Date', 'Customer', 'Created By', 'Items', 'Total Amount', 'Status', 'Payment Mode'];
+      const rows = filteredSales.map(o => {
+        const c = customers.find(x => x.id === o.customerId);
+        const cName = c ? c.name : 'Walk-in Customer';
+        const itemsStr = o.items.map(i => `${i.qty}x ${i.name}`).join('<br/>');
+        return [
+          o.invoiceNumber || `Order #${o.id}`,
+          new Date(o.date).toLocaleString('en-IN'),
+          cName,
+          o.createdBy || 'Unknown',
+          itemsStr,
+          `Rs. ${o.total}`,
+          o.status,
+          o.paymentMode
+        ];
+      });
+      printReportPDF('Orders Ledger Report', headers, rows);
+    } catch(e) {
+      alert("Ledger Print Error: " + e.message);
+      console.error(e);
+    }
   };
 
   return (
@@ -318,7 +356,7 @@ export default function Orders() {
                   {user?.role === 'owner' && (
                      <>
                        {canEdit && <button onClick={() => handleEdit(order, c)} className="bg-ui-bg text-ui-text border border-ui-border hover:bg-ui-border p-3 rounded-xl font-bold flex flex-col items-center justify-center shadow-sm active:scale-95 transition-all w-16 h-16"><span className="text-[10px]">Edit</span></button>}
-                       {canDelete && <button onClick={() => handleVoid(order, c)} className="bg-brand-danger text-white p-3 rounded-xl font-bold flex flex-col items-center justify-center shadow-md active:scale-95 transition-all w-16 h-16"><span className="text-[10px]">Void</span></button>}
+                       {canDelete && <button onClick={() => handleDelete(order, c)} className="bg-brand-danger text-white p-3 rounded-xl font-bold flex flex-col items-center justify-center shadow-md active:scale-95 transition-all w-16 h-16"><span className="text-[10px]">Void</span></button>}
                      </>
                   )}
                 </div>

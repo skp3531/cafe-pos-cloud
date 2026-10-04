@@ -21,7 +21,8 @@ export default function Purchase() {
   const [selectedInvId, setSelectedInvId] = useState('');
   const [qty, setQty] = useState('');
   const [amount, setAmount] = useState('');
-  const [paymentMode, setPaymentMode] = useState('cash'); // 'cash' or 'credit'
+  const [paymentMode, setPaymentMode] = useState('cash');
+  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
     const [dateFilter, setDateFilter] = useState('TODAY');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -97,11 +98,11 @@ export default function Purchase() {
     
     await db.purchases.add({
       supplierId: sId,
-      date: new Date().toISOString(),
+      date: new Date(purchaseDate).toISOString(),
       items: purchaseItems.map(pi => ({ inventoryId: pi.inventoryId, qty: pi.qty, multiplier: pi.multiplier })),
       totalAmount: amt,
       paymentMode: paymentMode,
-      paidAmount: paymentMode === 'cash' ? amt : 0,
+      paidAmount: paymentMode !== 'credit' ? amt : 0,
       createdBy: user?.name || 'Unknown'
     });
     
@@ -299,6 +300,10 @@ export default function Purchase() {
 
                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-ui-border">
                       <div>
+                        <label className="block text-sm font-semibold text-ui-muted mb-2">Purchase Date</label>
+                        <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} className="w-full p-4 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-medium" />
+                      </div>
+                      <div>
                         <label className="block text-sm font-semibold text-ui-muted mb-2">Total Bill Amount</label>
                         <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="w-full p-4 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-medium" />
                       </div>
@@ -306,6 +311,8 @@ export default function Purchase() {
                         <label className="block text-sm font-semibold text-ui-muted mb-2">Payment Terms</label>
                         <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className="w-full p-4 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-medium">
                           <option value="cash">Paid in Cash</option>
+                          <option value="drawer">Paid from Drawer (Cash)</option>
+                          <option value="upi">Paid via UPI</option>
                           <option value="credit">Buy on Credit</option>
                         </select>
                       </div>

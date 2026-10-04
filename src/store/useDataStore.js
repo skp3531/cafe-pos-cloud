@@ -34,8 +34,8 @@ const useDataStore = create((set) => ({
 
     const collections = [
       'sales', 'expenses', 'purchases', 'items', 'day_closing', 
-      'audit_logs', 'users', 'customers', 'categories', 'suppliers', 
-      'loyalty_transactions', 'stock_audits', 'attendance'
+      'audit_logs', 'users', 'customers', 'categories', 'inventory_categories', 'suppliers', 
+      'loyalty_transactions', 'stock_audits', 'attendance', 'inventory', 'inventory_logs', 'recipes', 'employees', 'payroll', 'salary_slips', 'shifts', 'held_orders'
     ];
 
     collections.forEach(colName => {

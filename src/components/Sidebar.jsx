@@ -50,7 +50,7 @@ export default function Sidebar() {
       case 'Inventory': return p.includes('inventory_view');
       case 'Purchase': return p.includes('purchases_view');
       case 'Customers': return p.includes('customers_view');
-      case 'Employees': return p.some(x => x.startsWith('employees_') || x.startsWith('attendance_'));
+      case 'Employees': return false; // Hidden for non-owners
       case 'Expenses': return p.includes('expenses_view');
       case 'Reports': return p.some(x => x.startsWith('reports_'));
       case 'Settings': return p.some(x => x.startsWith('settings_'));
@@ -61,14 +61,14 @@ export default function Sidebar() {
   return (
     <>
       {/* DESKTOP SIDEBAR */}
-      <div className="hidden md:flex w-24 lg:w-64 h-screen bg-ui-card border-r border-ui-border flex-col transition-all duration-300 z-40">
+      <div className="hidden md:flex w-20 lg:w-52 h-screen bg-ui-card border-r border-ui-border flex-col transition-all duration-300 z-40">
         <div className="p-4 flex flex-col items-center justify-center lg:items-start lg:px-6 h-20 border-b border-ui-border shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-brand-primary text-white rounded-xl flex items-center justify-center font-black text-xl shadow-md">
               {profileSettings.name ? profileSettings.name.substring(0, 1).toUpperCase() : 'S'}
             </div>
             <div className="hidden lg:block">
-              <span className="font-bold text-lg text-ui-text line-clamp-1">{profileSettings.name || 'Shake Sphere'}</span>
+              <span className="font-bold text-lg text-ui-text line-clamp-1">{profileSettings.name || 'Vitamin Bar'}</span>
               <span className="text-xs font-bold text-brand-primary bg-brand-primary/10 px-1.5 py-0.5 rounded capitalize">{user?.role}</span>
             </div>
           </div>
@@ -102,21 +102,24 @@ export default function Sidebar() {
       </div>
 
       {/* MOBILE BOTTOM NAV */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-ui-card border-t border-ui-border h-safe-bottom flex items-center justify-around px-2 pb-safe z-40 shadow-2xl">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-ui-card border-t border-ui-border pb-safe z-40 shadow-[0_-5px_20px_-10px_rgba(0,0,0,0.1)] flex items-center justify-around px-2 min-h-[64px]">
         {navItems.slice(0, 4).map((item) => (
           <NavLink
             key={item.name}
             to={item.path}
             onClick={() => setIsMoreOpen(false)}
             className={({ isActive }) => clsx(
-              "flex flex-col items-center justify-center w-16 h-14 rounded-2xl transition-all",
+              "flex flex-col items-center justify-center w-16 py-1.5 transition-all relative group",
               isActive && !isMoreOpen ? "text-brand-primary" : "text-ui-muted hover:text-ui-text"
             )}
           >
             {({ isActive }) => (
               <>
-                <item.icon className={clsx("w-6 h-6 mb-1 transition-transform", (isActive && !isMoreOpen) && "scale-110")} />
-                <span className="text-[10px] font-bold">{item.name}</span>
+                <div className={clsx("absolute top-0 w-8 h-1 rounded-b-full transition-all duration-300", isActive && !isMoreOpen ? "bg-brand-primary" : "bg-transparent")} />
+                <div className={clsx("p-1.5 rounded-xl transition-all duration-300", isActive && !isMoreOpen ? "bg-brand-primary/10" : "")}>
+                  <item.icon className={clsx("w-[22px] h-[22px] transition-transform duration-300", (isActive && !isMoreOpen) && "scale-110")} strokeWidth={isActive && !isMoreOpen ? 2.5 : 2} />
+                </div>
+                <span className={clsx("text-[10px] font-bold mt-0.5 transition-all duration-300", isActive && !isMoreOpen ? "opacity-100" : "opacity-70")}>{item.name}</span>
               </>
             )}
           </NavLink>
@@ -124,10 +127,13 @@ export default function Sidebar() {
         {navItems.length > 4 && (
           <button 
             onClick={() => setIsMoreOpen(!isMoreOpen)}
-            className={clsx("flex flex-col items-center justify-center w-16 h-14 rounded-2xl transition-all", isMoreOpen ? "text-brand-primary" : "text-ui-muted")}
+            className={clsx("flex flex-col items-center justify-center w-16 py-1.5 transition-all relative group", isMoreOpen ? "text-brand-primary" : "text-ui-muted hover:text-ui-text")}
           >
-            <LayoutGrid className={clsx("w-6 h-6 mb-1 transition-transform", isMoreOpen && "scale-110")} />
-            <span className="text-[10px] font-bold">More</span>
+            <div className={clsx("absolute top-0 w-8 h-1 rounded-b-full transition-all duration-300", isMoreOpen ? "bg-brand-primary" : "bg-transparent")} />
+            <div className={clsx("p-1.5 rounded-xl transition-all duration-300", isMoreOpen ? "bg-brand-primary/10" : "")}>
+              <LayoutGrid className={clsx("w-[22px] h-[22px] transition-transform duration-300", isMoreOpen && "scale-110")} strokeWidth={isMoreOpen ? 2.5 : 2} />
+            </div>
+            <span className={clsx("text-[10px] font-bold mt-0.5 transition-all duration-300", isMoreOpen ? "opacity-100" : "opacity-70")}>More</span>
           </button>
         )}
       </div>

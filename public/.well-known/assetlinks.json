@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.web.vitaminbar.twa",
+    "sha256_cert_fingerprints": ["76:BD:E1:E6:27:CA:1A:E6:2F:03:75:AC:FE:90:A6:F7:D3:BC:3E:AA:E3:B7:C7:AE:0E:30:6E:FA:38:B4:49:35"]
+  }
+}]

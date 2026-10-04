@@ -21,8 +21,11 @@ export default function Reports() {
   const purchases = useLiveQuery(() => db.purchases.toArray()) || [];
   const items = useLiveQuery(() => db.items.toArray()) || [];
   const dayClosings = useLiveQuery(() => db.day_closing.toArray()) || [];
+  const shifts = useLiveQuery(() => db.shifts.toArray()) || [];
   const auditLogs = useLiveQuery(() => db.audit_logs.toArray()) || [];
   const users = useLiveQuery(() => db.users.toArray()) || [];
+  const inventory = useLiveQuery(() => db.inventory.toArray()) || [];
+  const recipes = useLiveQuery(() => db.recipes.toArray()) || [];
 
   // Date Filtering Logic
   const getDateRange = () => {
@@ -61,6 +64,7 @@ export default function Reports() {
   const filteredSales = sales.filter(s => s.status === 'PAID' && s.date >= sDate && s.date <= eDate);
   const filteredReturns = sales.filter(s => s.status === 'RETURNED' && s.date >= sDate && s.date <= eDate);
   const filteredPurchases = purchases.filter(p => p.date >= sDate && p.date <= eDate);
+  const filteredShiftsData = shifts.filter(s => s.startTime >= sDate && s.startTime <= eDate);
 
   const totalSales = filteredSales.reduce((acc, s) => acc + s.total, 0);
   const totalPurchases = filteredPurchases.reduce((acc, p) => acc + (parseFloat(p.totalAmount) || 0), 0);
@@ -78,6 +82,44 @@ export default function Reports() {
     });
     return Object.values(itemMap).sort((a,b) => b.qty - a.qty);
   }, [filteredSales]);
+
+  const recipeData = useMemo(() => {
+    // 1. Calculate how many of each menu item was sold
+    const itemSales = {};
+    filteredSales.forEach(sale => {
+      (sale.items || []).forEach(cartItem => {
+        itemSales[cartItem.id] = (itemSales[cartItem.id] || 0) + cartItem.qty;
+      });
+    });
+
+    // 2. Generate report lines per recipe
+    const res = [];
+    recipes.forEach(r => {
+      const menuItem = items.find(i => i.id === parseInt(r.itemId));
+      if (!menuItem) return;
+      
+      let recipeCost = 0;
+      r.ingredients.forEach(ing => {
+        const inv = inventory.find(i => i.id === ing.inventoryId);
+        if (inv) recipeCost += (inv.costPerBaseUnit || 0) * ing.qty;
+      });
+
+      const qtySold = itemSales[menuItem.id] || 0;
+      const sp = menuItem.sellingPrice || 0;
+      const gp = sp - recipeCost;
+      const gm = sp > 0 ? (gp / sp) * 100 : 0;
+
+      res.push({
+        name: menuItem.name,
+        sp,
+        recipeCost,
+        gp,
+        gm,
+        qtySold
+      });
+    });
+    return res.sort((a,b) => b.qtySold - a.qtySold);
+  }, [filteredSales, recipes, items, inventory]);
 
   // Exports
   const downloadCSV = (headers, rows, filename) => {
@@ -101,23 +143,36 @@ export default function Reports() {
   
   const staffActivity = useMemo(() => {
     const map = {};
-    users.forEach(u => map[u.name] = { name: u.name, role: u.role, loginTime: '-', bills: 0, revenue: 0, returns: 0 });
+    users.forEach(u => map[u.name] = { name: u.name, role: u.role, loginTime: '-', bills: 0, revenue: 0, returns: 0, cashSale: 0, upiSale: 0, openingCash: 0, actualCash: 0 });
     
     filteredSales.forEach(s => {
       const creator = s.createdBy || 'Owner';
-      if (!map[creator]) map[creator] = { name: creator, role: 'Cashier', loginTime: '-', bills: 0, revenue: 0, returns: 0 };
+      if (!map[creator]) map[creator] = { name: creator, role: 'Cashier', loginTime: '-', bills: 0, revenue: 0, returns: 0, cashSale: 0, upiSale: 0, openingCash: 0, actualCash: 0 };
       if (s.status === 'PAID') {
         map[creator].bills += 1;
         map[creator].revenue += (parseFloat(s.total) || 0);
+        if (s.paymentMode === 'CASH') map[creator].cashSale += (parseFloat(s.total) || 0);
+        if (s.paymentMode === 'UPI') map[creator].upiSale += (parseFloat(s.total) || 0);
+        if (s.paymentMode === 'SPLIT') {
+           map[creator].cashSale += (s.splitDetails?.cash || 0);
+           map[creator].upiSale += (s.splitDetails?.upi || 0);
+        }
       } else if (s.status === 'RETURNED') {
         map[creator].returns += 1;
       }
     });
 
+    filteredShiftsData.forEach(s => {
+      const starter = s.startedBy || 'Unknown';
+      if (!map[starter]) map[starter] = { name: starter, role: 'Cashier', loginTime: '-', bills: 0, revenue: 0, returns: 0, cashSale: 0, upiSale: 0, openingCash: 0, actualCash: 0 };
+      map[starter].openingCash += (parseFloat(s.openingCash) || 0);
+      map[starter].actualCash += (parseFloat(s.closingCash) || 0);
+    });
+
     auditLogs.forEach(log => {
       if (log.action === 'LOGIN' && log.timestamp >= sDate && log.timestamp <= eDate) {
         const creator = log.userName;
-        if (!map[creator]) map[creator] = { name: creator, role: 'Unknown', loginTime: '-', bills: 0, revenue: 0, returns: 0 };
+        if (!map[creator]) map[creator] = { name: creator, role: 'Unknown', loginTime: '-', bills: 0, revenue: 0, returns: 0, cashSale: 0, upiSale: 0, openingCash: 0, actualCash: 0 };
         if (map[creator].loginTime === '-') {
           map[creator].loginTime = new Date(log.timestamp).toLocaleTimeString('en-IN');
         }
@@ -125,7 +180,7 @@ export default function Reports() {
     });
 
     return Object.values(map);
-  }, [users, filteredSales, auditLogs, sDate, eDate]);
+  }, [users, filteredSales, filteredShiftsData, auditLogs, sDate, eDate]);
 
   const exportCurrentTab = () => {
     if (activeTab === 'sales') {
@@ -163,6 +218,15 @@ export default function Reports() {
         s.remarks || ''
       ]);
       downloadCSV(headers, rows, `Z_Reports_${dateFilter}`);
+    } else if (activeTab === 'recipes') {
+      const headers = ["Item Name", "Selling Price", "Recipe Cost", "Gross Profit", "Margin %", "Qty Sold"];
+      const rows = recipeData.map(r => [r.name, r.sp.toFixed(2), r.recipeCost.toFixed(2), r.gp.toFixed(2), r.gm.toFixed(2), r.qtySold]);
+      downloadCSV(headers, rows, `Recipe_Costing_${dateFilter}`);
+    } else if (activeTab === 'audit') {
+      const headers = ["Timestamp", "User", "Action", "Reference ID", "Old Value", "New Value", "Reason"];
+      const logs = auditLogs.filter(a => a.timestamp >= sDate && a.timestamp <= eDate).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+      const rows = logs.map(a => [new Date(a.timestamp).toLocaleString(), a.user, a.action, a.refId, a.oldValue, a.newValue, a.reason]);
+      downloadCSV(headers, rows, `Audit_Logs_${dateFilter}`);
     }
   };
 
@@ -171,22 +235,28 @@ export default function Reports() {
   };
 
   return (
-    <div className="h-full flex flex-col p-4 md:p-8 max-w-7xl mx-auto pb-24 md:pb-8 overflow-hidden">
-      <h1 className="text-3xl font-bold text-ui-text tracking-tight mb-8 shrink-0 print:hidden">Reports</h1>
+    <div className="h-full flex flex-col p-4 md:p-6 max-w-[1400px] mx-auto pb-24 md:pb-6 overflow-hidden">
+      <h1 className="text-2xl font-bold text-ui-text tracking-tight mb-4 shrink-0 print:hidden">Reports</h1>
+      <div className="flex flex-col md:flex-row gap-6 flex-1 min-h-0 overflow-hidden">
       
-      {/* Report Tabs (Top Level) */}
-      <div className="flex bg-ui-card p-1 rounded-2xl border border-ui-border mb-6 shadow-sm overflow-x-auto hide-scrollbar shrink-0 print:hidden w-full md:w-fit">
+            {/* Report Tabs (Vertical Navigation) */}
+      <div className="w-full md:w-56 shrink-0 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-y-auto hide-scrollbar pb-2 md:pb-0 pr-0 md:pr-2 bg-transparent print:hidden">
         {[
             {id: 'sales', label: 'Sales', perm: 'reports_sales'}, 
             {id: 'purchases', label: 'Purchases', perm: 'reports_inventory'}, 
             {id: 'items', label: 'Items', perm: 'reports_items'}, 
+            {id: 'recipes', label: 'Recipes Costing', perm: 'reports_items'}, 
             {id: 'returns', label: 'Returns', perm: 'reports_sales'}, 
             {id: 'shifts', label: 'Z-Reports', perm: 'reports_sales'}, 
-            {id: 'staff', label: 'Staff Activity', perm: 'reports_attendance'}
+            {id: 'staff', label: 'Staff Activity', perm: 'reports_attendance'},
+            {id: 'audit', label: 'Security & Audit', perm: 'reports_audit'}
           ].filter(t => user?.role === 'owner' || user?.permissions?.includes(t.perm)).map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={clsx("flex-1 py-2 px-6 font-bold rounded-xl transition-all capitalize whitespace-nowrap", activeTab === tab.id ? 'bg-ui-bg text-brand-primary shadow-sm' : 'text-ui-muted hover:text-ui-text')}>{tab.label}</button>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={clsx("px-4 py-3 font-bold rounded-xl transition-all whitespace-nowrap text-left", activeTab === tab.id ? 'bg-brand-primary/10 text-brand-primary' : 'text-ui-muted hover:bg-ui-card hover:text-ui-text')}>{tab.label}</button>
         ))}
       </div>
+      
+      {/* Content wrapper */}
+      <div className="flex-1 overflow-y-auto hide-scrollbar pb-10 w-full h-full flex flex-col min-w-0">
 
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 shrink-0 print:hidden gap-4">
         {/* Date Filters (Second Level) */}
@@ -315,6 +385,34 @@ export default function Reports() {
             </table>
           )}
 
+          {activeTab === 'recipes' && (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-ui-bg text-ui-muted text-xs uppercase tracking-wider">
+                  <th className="p-4 font-bold">Item Name</th>
+                  <th className="p-4 font-bold text-right">Selling Price</th>
+                  <th className="p-4 font-bold text-right">Recipe Cost</th>
+                  <th className="p-4 font-bold text-right">Gross Profit</th>
+                  <th className="p-4 font-bold text-center">Margin %</th>
+                  <th className="p-4 font-bold text-center">Qty Sold</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ui-border text-sm font-medium text-ui-text">
+                {recipeData.map((r, i) => (
+                  <tr key={i} className="hover:bg-ui-bg transition-colors">
+                    <td className="p-4 font-bold">{r.name}</td>
+                    <td className="p-4 text-right">₹{r.sp.toFixed(2)}</td>
+                    <td className="p-4 text-right text-brand-danger">₹{r.recipeCost.toFixed(2)}</td>
+                    <td className="p-4 text-right font-black text-brand-accent">₹{r.gp.toFixed(2)}</td>
+                    <td className="p-4 text-center font-bold text-brand-primary">{r.gm.toFixed(2)}%</td>
+                    <td className="p-4 text-center font-black">{r.qtySold}</td>
+                  </tr>
+                ))}
+                {recipeData.length === 0 && <tr><td colSpan="6" className="p-8 text-center text-ui-muted">No recipe data available.</td></tr>}
+              </tbody>
+            </table>
+          )}
+
           
         {activeTab === 'staff' && (
           <div className="bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm col-span-1 md:col-span-2">
@@ -347,8 +445,9 @@ export default function Reports() {
           )}
 
           {activeTab === 'staff' && (
-            <table className="w-full text-left border-collapse">
-              <thead><tr className="bg-ui-bg text-ui-muted text-xs uppercase tracking-wider"><th className="p-4 font-bold">Staff Name</th><th className="p-4 font-bold text-center">First Login</th><th className="p-4 font-bold text-center">Bills Handled</th><th className="p-4 font-bold text-center">Returns Processed</th><th className="p-4 font-bold text-right">Total Revenue</th></tr></thead>
+            <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead><tr className="bg-ui-bg text-ui-muted text-xs uppercase tracking-wider"><th className="p-4 font-bold">Staff Name</th><th className="p-4 font-bold text-center">First Login</th><th className="p-4 font-bold text-center">Bills Handled</th><th className="p-4 font-bold text-right text-brand-primary">Cash Sale</th><th className="p-4 font-bold text-right text-brand-accent">UPI Sale</th><th className="p-4 font-bold text-right">Opening Cash</th><th className="p-4 font-bold text-right">Actual Cash</th><th className="p-4 font-bold text-right">Total Revenue</th></tr></thead>
               <tbody className="divide-y divide-ui-border text-sm font-medium text-ui-text">
                 {staffActivity.map((s, idx) => (
                   <tr key={idx} className="hover:bg-ui-bg transition-colors">
@@ -358,19 +457,46 @@ export default function Reports() {
                     </td>
                     <td className="p-4 text-center">{s.loginTime}</td>
                     <td className="p-4 text-center font-black text-ui-text">{s.bills}</td>
-                    <td className="p-4 text-center font-bold text-brand-danger">{s.returns > 0 ? s.returns : '-'}</td>
+                    <td className="p-4 text-right font-bold text-brand-primary">₹{(s.cashSale || 0).toFixed(2)}</td>
+                    <td className="p-4 text-right font-bold text-brand-accent">₹{(s.upiSale || 0).toFixed(2)}</td>
+                    <td className="p-4 text-right text-ui-muted">₹{(s.openingCash || 0).toFixed(2)}</td>
+                    <td className="p-4 text-right font-bold text-ui-text">₹{(s.actualCash || 0).toFixed(2)}</td>
                     <td className="p-4 text-right font-black text-brand-primary">₹{(s.revenue || 0).toFixed(2)}</td>
                   </tr>
                 ))}
-                {staffActivity.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-ui-muted font-bold">No staff activity found.</td></tr>}
+                {staffActivity.length === 0 && <tr><td colSpan="8" className="p-8 text-center text-ui-muted font-bold">No staff activity found.</td></tr>}
               </tbody>
             </table>
+            </div>
           )}
 
-
+          {activeTab === 'audit' && (
+            <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead><tr className="bg-ui-bg text-ui-muted text-xs uppercase tracking-wider"><th className="p-4 font-bold">Timestamp</th><th className="p-4 font-bold">User</th><th className="p-4 font-bold">Action</th><th className="p-4 font-bold">Ref ID</th><th className="p-4 font-bold">Changes</th><th className="p-4 font-bold">Reason</th></tr></thead>
+              <tbody className="divide-y divide-ui-border text-sm font-medium text-ui-text">
+                {(() => {
+                  const logs = auditLogs.filter(a => a.timestamp >= sDate && a.timestamp <= eDate).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+                  if (logs.length === 0) return <tr><td colSpan="6" className="p-8 text-center text-ui-muted font-bold">No audit logs found for this period.</td></tr>;
+                  return logs.map((a, idx) => (
+                    <tr key={idx} className="hover:bg-ui-bg transition-colors">
+                      <td className="p-4 text-xs font-bold text-ui-muted">{new Date(a.timestamp).toLocaleString('en-IN')}</td>
+                      <td className="p-4 font-bold">{a.user}</td>
+                      <td className="p-4"><span className="bg-ui-bg border border-ui-border px-2 py-1 rounded text-xs font-bold">{a.action}</span></td>
+                      <td className="p-4 text-brand-accent font-bold text-xs">{a.refId || '-'}</td>
+                      <td className="p-4 text-xs"><span className="text-ui-muted line-through mr-1">{a.oldValue}</span> <span className="text-brand-primary font-bold">{a.newValue}</span></td>
+                      <td className="p-4 text-xs font-medium text-ui-muted whitespace-pre-wrap max-w-xs truncate" title={a.reason}>{a.reason}</td>
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+            </div>
+          )}
 
         </div>
-      </div>
+            </div>
     </div>
+    </div></div>
   );
 }

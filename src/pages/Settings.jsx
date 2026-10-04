@@ -4,6 +4,7 @@ import { db, hashPin } from '../db/db';
 import { Download, Upload, Cloud, Heart, Store, FileText, Users, Plus, Trash2, Printer, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
 import PrintLayoutSettings from '../components/PrintLayoutSettings';
+import { useAuthStore } from '../store/useAuthStore';
 
 
 const PERMISSION_GROUPS = [
@@ -82,6 +83,28 @@ function toggleGroup(groupPerms, currentPerms, setPerms) {
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('profile');
+  const user = useAuthStore(state => state.user);
+  
+  // Figure out which tabs this user is allowed to see
+  const hasPerm = (p) => user?.role === 'owner' || user?.permissions?.includes(p);
+  const canSeeProfile = hasPerm('settings_business');
+  const canSeePrint = hasPerm('settings_printing');
+  const canSeeLoyalty = hasPerm('settings_loyalty');
+  const canSeeStaff = hasPerm('settings_staff');
+  const canSeeBackup = hasPerm('settings_backup');
+  // we'll say attendance requires attendance_mark or owner
+  const canSeeAttendance = user?.role === 'owner' || user?.permissions?.some(x => x.startsWith('attendance_'));
+  
+  // Set default tab if they don't have access to profile
+  React.useEffect(() => {
+    if (!canSeeProfile) {
+      if (canSeePrint) setActiveTab('print');
+      else if (canSeeLoyalty) setActiveTab('loyalty');
+      else if (canSeeStaff) setActiveTab('staff');
+      else if (canSeeAttendance) setActiveTab('attendance');
+      else if (canSeeBackup) setActiveTab('backup');
+    }
+  }, [user]);
 
   // Loyalty
   const [earnRatio, setEarnRatio] = useState(100);
@@ -132,6 +155,19 @@ export default function Settings() {
 
 
   
+
+  useEffect(() => {
+    if (activeTab === 'staff') {
+      const owners = users.filter(u => (u.name === 'Owner' || u.name === 'owner') && u.role === 'owner');
+      if (owners.length > 1) {
+          const [keep, ...rest] = owners;
+          rest.forEach(dup => {
+              db.users.delete(dup.id);
+          });
+      }
+    }
+  }, [activeTab, users]);
+
   useEffect(() => {
     if (printData) {
       setFontSize(printData.fontSize || '13px');
@@ -273,19 +309,20 @@ export default function Settings() {
   };
 
   return (
-    <div className="h-full flex flex-col p-4 md:p-8 max-w-7xl mx-auto pb-24 md:pb-8 overflow-hidden">
-      <h1 className="text-3xl font-bold text-ui-text tracking-tight mb-6 shrink-0">Settings</h1>
+    <div className="h-full flex flex-col p-4 md:p-6 max-w-[1400px] mx-auto pb-24 md:pb-6 overflow-hidden">
+      <h1 className="text-2xl font-bold text-ui-text tracking-tight mb-4 shrink-0">Settings</h1>
+      <div className="flex flex-col md:flex-row gap-6 flex-1 min-h-0 overflow-hidden">
       
-      <div className="flex bg-ui-card p-1 rounded-2xl border border-ui-border mb-8 w-full md:w-fit max-w-full shadow-sm shrink-0 overflow-x-auto hide-scrollbar">
-        <button className={clsx("px-4 py-2 font-bold rounded-xl transition-all whitespace-nowrap", activeTab === 'profile' ? 'bg-ui-bg text-brand-primary shadow-sm' : 'text-ui-muted hover:text-ui-text')} onClick={() => setActiveTab('profile')}>Business Profile</button>
-        <button className={clsx("px-4 py-2 font-bold rounded-xl transition-all whitespace-nowrap", activeTab === 'print' ? 'bg-ui-bg text-brand-primary shadow-sm' : 'text-ui-muted hover:text-ui-text')} onClick={() => setActiveTab('print')}>Print Layout</button>
-        <button className={clsx("px-4 py-2 font-bold rounded-xl transition-all whitespace-nowrap", activeTab === 'loyalty' ? 'bg-ui-bg text-brand-primary shadow-sm' : 'text-ui-muted hover:text-ui-text')} onClick={() => setActiveTab('loyalty')}>Loyalty</button>
-        <button className={clsx("px-4 py-2 font-bold rounded-xl transition-all whitespace-nowrap", activeTab === 'staff' ? 'bg-ui-bg text-brand-primary shadow-sm' : 'text-ui-muted hover:text-ui-text')} onClick={() => setActiveTab('staff')}>Staff & Access</button>
-        <button className={clsx("px-4 py-2 font-bold rounded-xl transition-all whitespace-nowrap", activeTab === 'attendance' ? 'bg-ui-bg text-brand-primary shadow-sm' : 'text-ui-muted hover:text-ui-text')} onClick={() => setActiveTab('attendance')}>GPS Attendance</button>
-        <button className={clsx("px-4 py-2 font-bold rounded-xl transition-all whitespace-nowrap", activeTab === 'backup' ? 'bg-ui-bg text-brand-primary shadow-sm' : 'text-ui-muted hover:text-ui-text')} onClick={() => setActiveTab('backup')}>Backup & Sync</button>
+      <div className="w-full md:w-56 shrink-0 flex flex-col gap-1 overflow-y-auto hide-scrollbar pb-2 md:pb-0 pr-0 md:pr-2 bg-transparent">
+        {canSeeProfile && <button className={clsx("w-full px-4 py-3 font-bold rounded-xl transition-all whitespace-nowrap text-left", activeTab === 'profile' ? 'bg-brand-primary/10 text-brand-primary' : 'text-ui-muted hover:bg-ui-card hover:text-ui-text')} onClick={() => setActiveTab('profile')}>Business Profile</button>}
+        {canSeePrint && <button className={clsx("w-full px-4 py-3 font-bold rounded-xl transition-all whitespace-nowrap text-left", activeTab === 'print' ? 'bg-brand-primary/10 text-brand-primary' : 'text-ui-muted hover:bg-ui-card hover:text-ui-text')} onClick={() => setActiveTab('print')}>Print Layout</button>}
+        {canSeeLoyalty && <button className={clsx("w-full px-4 py-3 font-bold rounded-xl transition-all whitespace-nowrap text-left", activeTab === 'loyalty' ? 'bg-brand-primary/10 text-brand-primary' : 'text-ui-muted hover:bg-ui-card hover:text-ui-text')} onClick={() => setActiveTab('loyalty')}>Loyalty</button>}
+        {canSeeStaff && <button className={clsx("w-full px-4 py-3 font-bold rounded-xl transition-all whitespace-nowrap text-left", activeTab === 'staff' ? 'bg-brand-primary/10 text-brand-primary' : 'text-ui-muted hover:bg-ui-card hover:text-ui-text')} onClick={() => setActiveTab('staff')}>Staff & Access</button>}
+        {canSeeAttendance && <button className={clsx("w-full px-4 py-3 font-bold rounded-xl transition-all whitespace-nowrap text-left", activeTab === 'attendance' ? 'bg-brand-primary/10 text-brand-primary' : 'text-ui-muted hover:bg-ui-card hover:text-ui-text')} onClick={() => setActiveTab('attendance')}>GPS Attendance</button>}
+        {canSeeBackup && <button className={clsx("w-full px-4 py-3 font-bold rounded-xl transition-all whitespace-nowrap text-left", activeTab === 'backup' ? 'bg-brand-primary/10 text-brand-primary' : 'text-ui-muted hover:bg-ui-card hover:text-ui-text')} onClick={() => setActiveTab('backup')}>Backup & Sync</button>}
       </div>
 
-      <div className="flex-1 overflow-y-auto hide-scrollbar pb-10">
+      <div className="flex-1 overflow-y-auto hide-scrollbar pb-10 w-full h-full">
         <div className="max-w-2xl">
           {activeTab === 'profile' && (
             <div className="bg-ui-card p-6 md:p-8 rounded-3xl border border-ui-border shadow-sm">
@@ -469,22 +506,35 @@ export default function Settings() {
           )}
 
           {activeTab === 'backup' && (
-            <div className="bg-ui-card p-6 md:p-8 rounded-3xl border border-ui-border shadow-sm">
-              <div className="w-12 h-12 bg-ui-bg rounded-2xl flex items-center justify-center text-ui-muted mb-6"><Cloud size={24}/></div>
-              <h2 className="text-xl font-bold mb-2 text-ui-text">Auto Backup & Sync</h2>
-              <div className="flex flex-col sm:flex-row gap-4 mt-6">
-                <button onClick={downloadBackup} className="flex-1 bg-ui-text text-ui-bg p-4 rounded-2xl font-bold shadow-md hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">
-                  <Download size={20} /> Export Backup
-                </button>
-                <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleRestore} />
-                <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-ui-bg text-ui-text border border-ui-border p-4 rounded-2xl font-bold hover:bg-ui-border active:scale-95 transition-all flex items-center justify-center gap-2">
-                  <Upload size={20} /> Restore
+            <div className="space-y-6">
+              <div className="bg-ui-card p-6 md:p-8 rounded-3xl border border-ui-border shadow-sm">
+                <div className="w-12 h-12 bg-ui-bg rounded-2xl flex items-center justify-center text-ui-muted mb-6"><Cloud size={24}/></div>
+                <h2 className="text-xl font-bold mb-2 text-ui-text">Auto Backup & Sync</h2>
+                <div className="flex flex-col sm:flex-row gap-4 mt-6">
+                  <button onClick={downloadBackup} className="flex-1 bg-ui-text text-ui-bg p-4 rounded-2xl font-bold shadow-md hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">
+                    <Download size={20} /> Export Backup
+                  </button>
+                  <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleRestore} />
+                  <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-ui-bg text-ui-text border border-ui-border p-4 rounded-2xl font-bold hover:bg-ui-border active:scale-95 transition-all flex items-center justify-center gap-2">
+                    <Upload size={20} /> Restore
+                  </button>
+                </div>
+              </div>
+              <div className="bg-ui-card p-6 md:p-8 rounded-3xl border border-ui-border shadow-sm border-dashed border-brand-accent">
+                <h2 className="text-xl font-bold mb-2 text-ui-text text-brand-accent">Developer Tools</h2>
+                <p className="text-sm text-ui-muted font-medium mb-4">Run the database seed script to auto-fill Raw Materials and Recipes for standard items.</p>
+                <button onClick={async () => {
+                   const { seedInventoryAndRecipes } = await import('../utils/seedRecipes.js');
+                   await seedInventoryAndRecipes();
+                }} className="bg-brand-accent text-white p-4 rounded-2xl font-bold shadow-md hover:shadow-lg active:scale-95 transition-all">
+                  Run Data Seed Script
                 </button>
               </div>
             </div>
           )}
         </div>
       </div>
-    </div>
+          </div>
+</div>
   );
 }

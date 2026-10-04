@@ -35,10 +35,9 @@ export default function Dashboard() {
 
   const calculateExpectedCash = () => {
     if (!activeShift) return 0;
-    // sum up cash sales for today
-    const cashSales = todaySales.filter(s => s.paymentMode === 'cash').reduce((sum, s) => sum + s.total, 0);
-    // add to opening
-    return parseFloat(activeShift.openingCash) + cashSales;
+    const cSales = todaySales.filter(s => s.paymentMode === 'CASH').reduce((sum, s) => sum + s.total, 0);
+    const spCash = todaySales.filter(s => s.paymentMode === 'SPLIT').reduce((sum, s) => sum + (s.splitDetails?.cash || 0), 0);
+    return parseFloat(activeShift.openingCash) + cSales + spCash;
   };
 
   const handleEndShift = async (e) => {
@@ -58,7 +57,11 @@ export default function Dashboard() {
   };
 
   const activeShift = useLiveQuery(async () => {
-    try { return db.shifts ? await db.shifts.where('status').equals('active').first() : null; } catch (e) { return null; }
+    try { 
+        if (!db.shifts || !user?.name) return null;
+        const shifts = await db.shifts.where('status').equals('active').toArray();
+        return shifts.find(s => s.startedBy === user.name) || null;
+    } catch (e) { return null; }
   });
   const allShifts = useLiveQuery(() => db.shifts ? db.shifts.toArray() : []) || [];
 
@@ -210,9 +213,17 @@ export default function Dashboard() {
            <h2 className="text-3xl font-bold text-ui-text">₹{totalSalesAmount.toFixed(2)}</h2>
         </div>
         <div className="bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm flex flex-col justify-between">
-           <div className="w-12 h-12 bg-ui-bg rounded-2xl flex items-center justify-center text-ui-muted mb-4"><ShoppingBag size={24} /></div>
-           <p className="text-ui-muted font-bold text-sm mb-1">Total Orders</p>
-           <h2 className="text-3xl font-bold text-ui-text">{todaySales.length}</h2>
+           <div className="flex justify-between items-start mb-4">
+             <div className="w-12 h-12 bg-ui-bg rounded-2xl flex items-center justify-center text-ui-muted"><ShoppingBag size={24} /></div>
+             <div className="text-right flex flex-col text-xs font-bold text-ui-muted bg-ui-bg py-1 px-2 rounded-xl">
+                <span className="text-brand-primary">CASH: ₹{totalCashCollected.toFixed(2)}</span>
+                <span className="text-brand-accent">UPI: ₹{totalUpiCollected.toFixed(2)}</span>
+             </div>
+           </div>
+           <div>
+             <p className="text-ui-muted font-bold text-sm mb-1">Total Orders</p>
+             <h2 className="text-3xl font-bold text-ui-text">{todaySales.length}</h2>
+           </div>
         </div>
         <div className="bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm flex flex-col justify-between">
            <div className="w-12 h-12 bg-ui-bg rounded-2xl flex items-center justify-center text-ui-muted mb-4"><Receipt size={24} /></div>

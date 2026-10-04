@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "cafe-pos-e39d6"
+  },
+  "targets": {
+    "cafe-pos-e39d6": {
+      "hosting": {
+        "app": [
+          "vitaminbar"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

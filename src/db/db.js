@@ -11,7 +11,15 @@ const getStoreCollection = (name) => {
 class MockQuery {
     constructor(collectionName, dataArray) {
         this.collectionName = collectionName;
-        this.data = dataArray || getStoreCollection(collectionName);
+        let rawData = dataArray || getStoreCollection(collectionName);
+        if (!Array.isArray(rawData)) {
+            if (rawData && typeof rawData === 'object') {
+                rawData = Object.keys(rawData).map(k => ({ id: k, ...rawData[k] }));
+            } else {
+                rawData = [];
+            }
+        }
+        this.data = rawData;
     }
     
     where(key) {
@@ -78,33 +86,36 @@ class MockCollection {
     
     async add(data) {
         data.id = data.id || Date.now();
-        await setDoc(doc(firestore, this.name, data.id.toString()), data);
+        setDoc(doc(firestore, this.name, data.id.toString()), data).catch(console.error);
         return data.id;
     }
     
     async update(id, changes) {
-        await updateDoc(doc(firestore, this.name, id.toString()), changes);
+        updateDoc(doc(firestore, this.name, id.toString()), changes).catch(console.error);
     }
     
     async delete(id) {
-        await deleteDoc(doc(firestore, this.name, id.toString()));
+        deleteDoc(doc(firestore, this.name, id.toString())).catch(console.error);
     }
     
     async put(data, id) {
         const docId = id || data.id || Date.now();
         data.id = docId;
-        await setDoc(doc(firestore, this.name, docId.toString()), data);
+        setDoc(doc(firestore, this.name, docId.toString()), data).catch(console.error);
         return docId;
     }
     
     async get(id) {
         // First check in-memory store for instant resolve if possible
-        const local = getStoreCollection(this.name).find(x => x.id === id || x.id === id?.toString() || x.id === Number(id));
-        if (local) return local;
+        const colData = getStoreCollection(this.name);
+        if (Array.isArray(colData)) {
+            const local = colData.find(x => x.id === id || x.id === id?.toString() || x.id === Number(id));
+            if (local) return local;
+        } else if (colData && typeof colData === 'object') {
+            if (colData[id]) return { id, ...colData[id] };
+        }
         
-        // Fallback to firestore
-        const d = await getDoc(doc(firestore, this.name, id.toString()));
-        return d.exists() ? {id: d.id, ...d.data()} : undefined;
+        return undefined;
     }
     
     async bulkAdd(arr) {
@@ -147,6 +158,7 @@ class MockCollection {
 class MockDB {
     constructor() {
         this.categories = new MockCollection('categories');
+        this.inventory_categories = new MockCollection('inventory_categories');
         this.items = new MockCollection('items');
         this.recipes = new MockCollection('recipes');
         this.inventory = new MockCollection('inventory');
@@ -186,48 +198,51 @@ class MockDB {
 export const db = new MockDB();
 
 export function useLiveQuery(queryFn) {
-    const store = useDataStore(); // re-renders component when store updates
+    const store = useDataStore();
     const [result, setResult] = useState(undefined);
     
-    // We stringify the store briefly just to trigger effect if data actually changed, 
-    // or we just depend on store object reference since Zustand creates a new reference.
     useEffect(() => {
         let isMounted = true;
         Promise.resolve(queryFn()).then(res => {
-            if (isMounted) setResult(res);
+            if (!isMounted) return;
+            setResult(prev => {
+                // Prevent infinite loops by only updating state if the data actually changed
+                try {
+                    if (JSON.stringify(prev) === JSON.stringify(res)) {
+                        return prev;
+                    }
+                } catch(e) {}
+                return res;
+            });
         }).catch(err => {
             console.error("useLiveQuery error:", err);
-            if (isMounted) setResult(undefined);
         });
         return () => { isMounted = false; };
-    }, [store, queryFn]);
+    }); // Run on every render to catch changing queryFn dependencies, but only trigger update if data changed!
     
     return result;
 }
 
 export const generateInvoiceNumber = async () => {
-  const profile = await db.settings.get('profile');
-  const printAdvanced = await db.settings.get('printAdvanced');
-  const printSettings = printAdvanced?.data || (await db.settings.get('print'));
+  const [profile, printAdvanced, printBase] = await Promise.all([
+    db.settings.get('profile'),
+    db.settings.get('printAdvanced'),
+    db.settings.get('print')
+  ]);
+  const printSettings = printAdvanced?.data || printBase;
   
   const prefix = profile?.terminalId || 'T1';
-  const today = new Date();
-  const dateStr = today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   
-  const todayCount = (await db.sales.where('date').aboveOrEqual(todayStart.toISOString()).toArray()).length;
+  const todayCount = await db.sales.where('date').aboveOrEqual(todayStart.toISOString()).count();
   
   const offset = parseInt(printSettings?.customInvoiceStart, 10);
   const seqVal = todayCount + (isNaN(offset) ? 1 : offset);
   const seq = String(seqVal).padStart(4, '0');
   
-  const format = printSettings?.invoiceFormat || 'standard';
-  if (format === 'short') return `${prefix}-${seq}`;
-  if (format === 'minimal') return `${seq}`;
-  return `${prefix}-${dateStr}-${seq}`;
+  // Hardcoded to short form as requested by user
+  return `${prefix}-${seq}`;
 };
 
 export const hashPin = async (pin) => {
@@ -236,4 +251,27 @@ export const hashPin = async (pin) => {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+export const logInventoryMovement = async (materialId, qtyChange, transactionType, referenceId, note = '') => {
+  const item = await db.inventory.get(materialId);
+  if (!item) return;
+
+  const quantityBefore = item.currentStock || 0;
+  const quantityAfter = quantityBefore + qtyChange;
+
+  await db.inventory.update(materialId, { currentStock: quantityAfter });
+
+  await db.inventory_logs.add({
+    materialId: item.id,
+    materialName: item.name,
+    quantity: qtyChange,
+    unit: item.baseUnit || item.unit,
+    quantityBefore,
+    quantityAfter,
+    transactionType, // 'PURCHASE', 'SALE', 'WASTAGE', 'MANUAL_ADJUSTMENT', 'PHYSICAL_AUDIT', 'SALE_REVERSAL', 'PURCHASE_RETURN'
+    referenceId,
+    note,
+    createdAt: new Date().toISOString()
+  });
 };

@@ -25,9 +25,6 @@ function ProtectedRoute({ children, perm }) {
   
   if (user.role === 'owner') return children;
   
-  // The explicit employee restriction has been removed.
-  // Standard permission checks will now apply to all roles.
-  
   const p = user.permissions || [];
   let hasPerm = false;
   switch(perm) {
@@ -44,10 +41,23 @@ function ProtectedRoute({ children, perm }) {
     case 'settings': hasPerm = p.some(x => x.startsWith('settings_')); break;
     default: hasPerm = false;
   }
+  
   if (!hasPerm) {
-    const firstPerm = user.permissions?.[0] || 'billing';
+    let fallback = '/';
+    if (p.includes('billing_access')) fallback = '/billing';
+    else if (p.includes('orders_view')) fallback = '/orders';
+    else if (p.includes('menu_view')) fallback = '/menu';
+    else if (p.includes('inventory_view')) fallback = '/inventory';
+    else if (p.includes('purchases_view')) fallback = '/purchase';
+    else if (p.includes('customers_view')) fallback = '/customers';
+    else if (p.some(x => x.startsWith('employees_') || x.startsWith('attendance_'))) fallback = '/employees';
+    else if (p.includes('expenses_view')) fallback = '/expenses';
+    else if (p.some(x => x.startsWith('settings_'))) fallback = '/settings';
     
-    return <Navigate to={user.role === 'cashier' ? '/billing' : '/'} replace />;
+    // Avoid redirect loop if trying to access root and root falls back to root
+    if (perm === 'reports_dashboard' && fallback === '/') return <Navigate to="/login" replace />;
+    
+    return <Navigate to={fallback} replace />;
   }
   
   return children;
@@ -105,7 +115,20 @@ function App() {
             <ProtectedRoute perm="settings"><Settings /></ProtectedRoute>
           } />
           {/* Catch all fallback */}
-          <Route path="*" element={<Navigate to={user?.role === 'cashier' ? '/billing' : '/'} replace />} />
+          {/* Catch all fallback */}
+          <Route path="*" element={
+            <Navigate to={
+              user?.role === 'owner' ? '/' :
+              (user?.permissions?.includes('billing_access') ? '/billing' :
+              user?.permissions?.includes('orders_view') ? '/orders' :
+              user?.permissions?.includes('menu_view') ? '/menu' :
+              user?.permissions?.includes('inventory_view') ? '/inventory' :
+              user?.permissions?.includes('purchases_view') ? '/purchase' :
+              user?.permissions?.includes('customers_view') ? '/customers' :
+              user?.permissions?.includes('expenses_view') ? '/expenses' :
+              user?.permissions?.some(x => x.startsWith('settings_')) ? '/settings' : '/')
+            } replace />
+          } />
         </Route>
       </Routes>
     </BrowserRouter>

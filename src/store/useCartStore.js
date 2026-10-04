@@ -40,6 +40,14 @@ export const useCartStore = create((set, get) => ({
   removeItem: (cartId) => set((state) => ({ 
     cart: state.cart.filter(i => (i.cartId || (i.id + '-' + i.name)) !== cartId) 
   })),
+
+  updateItemNotes: (cartId, notes) => set((state) => ({
+    cart: state.cart.map(i => 
+      (i.cartId || (i.id + '-' + i.name)) === cartId 
+        ? { ...i, notes } 
+        : i
+    )
+  })),
   
   clearCart: () => set({ cart: [], customer: null, discountPercent: 0, discountFixed: 0, redeemPoints: 0 }),
   

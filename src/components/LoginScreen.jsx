@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, hashPin } from '../db/db';
 import { useAuthStore } from '../store/useAuthStore';
+import useDataStore from '../store/useDataStore';
 import { Lock, ShieldAlert } from 'lucide-react';
 
 export default function LoginScreen() {
@@ -10,21 +11,34 @@ export default function LoginScreen() {
   const login = useAuthStore(state => state.login);
 
   useEffect(() => {
-    const seedUsers = async () => {
-      const count = await db.users.count();
-      if (count === 0) {
-        const hashed = await hashPin('admin123');
-        await db.users.add({ name: 'Owner', pin: hashed, role: 'owner', isDefaultPin: true });
-      } else {
-        // Migrate default owner pin from '1234' to 'admin123' if it exists
-        const oldHashed = await hashPin('1234');
-        const defaultOwner = await db.users.where('pin').equals(oldHashed).first();
-        if (defaultOwner) {
-          const newHashed = await hashPin('admin123');
-          await db.users.update(defaultOwner.id, { pin: newHashed });
+    const seedUsers = () => {
+      setTimeout(async () => {
+        const users = useDataStore.getState().users || [];
+        if (users.length === 0) {
+          const hashed = await hashPin('admin123');
+          // Use put with fixed ID to prevent duplication
+          await db.users.put({ id: 'default_owner', name: 'Owner', pin: hashed, role: 'owner', isDefaultPin: true });
+        } else {
+          // Cleanup duplicates
+          const owners = users.filter(u => (u.name === 'Owner' || u.name === 'owner') && u.role === 'owner');
+          if (owners.length > 1) {
+              const [keep, ...rest] = owners;
+              for (const dup of rest) {
+                  await db.users.delete(dup.id);
+              }
+          }
+          
+          // Migrate old default pin
+          const oldHashed = await hashPin('1234');
+          const defaultOwner = users.find(u => u.pin === oldHashed);
+          if (defaultOwner) {
+            const newHashed = await hashPin('admin123');
+            await db.users.update(defaultOwner.id, { pin: newHashed });
+          }
         }
-      }
+      }, 2500); // give firestore time to load initial data
     };
+
     seedUsers();
   }, []);
 
@@ -52,7 +66,7 @@ export default function LoginScreen() {
         setPin('');
       }
     } catch (err) {
-      setError('Login error. Please refresh.');
+      setError('Login error: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -65,7 +79,7 @@ export default function LoginScreen() {
           <div className="w-16 h-16 bg-brand-primary/10 text-brand-primary rounded-2xl flex items-center justify-center mb-4">
             <Lock size={32} />
           </div>
-          <h1 className="text-2xl font-bold text-ui-text">Shake Sphere POS</h1>
+          <h1 className="text-2xl font-bold text-ui-text">Vitamin Bar</h1>
           <p className="text-ui-muted text-sm mt-1">Enter your Password to continue</p>
         </div>
 
@@ -92,7 +106,7 @@ export default function LoginScreen() {
             {loading ? 'Verifying...' : 'Login'}
           </button>
         </form>
-        <p className="text-center text-xs text-ui-muted mt-6">Default Owner Password: admin123</p>
+        
       </div>
     </div>
   );

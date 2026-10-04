@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useLiveQuery } from '../db/db';
 import { db } from '../db/db';
-import { Plus, Gift, CreditCard, Clock, Award, ChevronDown, ChevronUp, ReceiptText } from 'lucide-react';
+import { Plus, Gift, CreditCard, Clock, Award, ChevronDown, ChevronUp, ReceiptText, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
 
@@ -26,6 +26,18 @@ export default function Customers() {
     setName(''); setMobile('');
   };
 
+  const handleDeleteCustomer = async (id, hasOrders, customerName) => {
+    if (hasOrders) {
+      if (window.confirm("This customer has past orders. To preserve sales history, this will soft-delete the customer profile. Proceed?")) {
+        await db.customers.update(id, { deleted: true, name: customerName + " (Deleted)" });
+      }
+    } else {
+      if (window.confirm("Delete this customer completely?")) {
+        await db.customers.delete(id);
+      }
+    }
+  };
+
   const filteredCustomers = customers.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
     c.mobile.includes(search)
@@ -43,22 +55,56 @@ export default function Customers() {
             {filteredCustomers.length === 0 && <div className="text-ui-muted text-center py-10 bg-ui-card rounded-3xl border border-ui-border border-dashed font-medium">No customers found.</div>}
             
             {filteredCustomers.map(customer => {
+              if (customer.deleted) return null;
+              
               const customerOrders = sales.filter(s => s.customerId === customer.id).sort((a,b) => new Date(b.date) - new Date(a.date));
               const totalSpend = customerOrders.reduce((acc, curr) => acc + curr.total, 0);
               const lastVisit = customerOrders.length > 0 ? customerOrders[0].date : null;
+              const avgBill = customerOrders.length > 0 ? (totalSpend / customerOrders.length).toFixed(2) : '0.00';
+              
+              // Segment Logic
+              let segment = "New";
+              let segColor = "bg-brand-primary/10 text-brand-primary border-brand-primary/20";
+              const daysSinceVisit = lastVisit ? (new Date() - new Date(lastVisit)) / (1000 * 60 * 60 * 24) : 999;
+              if (daysSinceVisit > 30) {
+                 segment = "Inactive";
+                 segColor = "bg-ui-muted/10 text-ui-muted border-ui-border";
+              } else if (customerOrders.length >= 10 || totalSpend >= 5000) {
+                 segment = "VIP";
+                 segColor = "bg-brand-warning/10 text-brand-warning border-brand-warning/20";
+              } else if (customerOrders.length >= 3) {
+                 segment = "Regular";
+                 segColor = "bg-brand-accent/10 text-brand-accent border-brand-accent/20";
+              }
+
+              // Favourite Item Logic
+              const itemFreq = {};
+              customerOrders.forEach(o => o.items.forEach(i => {
+                 itemFreq[i.name] = (itemFreq[i.name] || 0) + i.qty;
+              }));
+              const favItem = Object.keys(itemFreq).length > 0 ? Object.keys(itemFreq).reduce((a, b) => itemFreq[a] > itemFreq[b] ? a : b) : 'None';
+
               const isExpanded = expandedId === customer.id;
               
               return (
-                <div key={customer.id} className="bg-ui-card rounded-3xl border border-ui-border shadow-sm overflow-hidden">
+                <div key={customer.id} className="bg-ui-card rounded-3xl border border-ui-border shadow-sm overflow-hidden relative group">
                   <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-6 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : customer.id)}>
-                    <div>
-                      <h3 className="font-bold text-ui-text text-lg">{customer.name}</h3>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <h3 className="font-bold text-ui-text text-lg">{customer.name}</h3>
+                        <span className={clsx("text-xs font-bold px-2 py-0.5 rounded-md border", segColor)}>{segment}</span>
+                      </div>
                       <p className="text-ui-muted font-medium mt-1">{customer.mobile}</p>
                       {customer.loyaltyPoints > 0 && (
                         <div className="mt-3 inline-flex items-center gap-1.5 bg-brand-warning/10 text-brand-warning px-3 py-1 rounded-lg text-sm font-bold border border-brand-warning/20">
                           <Award size={16}/> {customer.loyaltyPoints} Points
                         </div>
                       )}
+                      
+                      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                        <div className="flex flex-col"><span className="text-ui-muted text-xs font-bold uppercase tracking-wider">Avg Bill</span><span className="font-bold text-ui-text">₹{avgBill}</span></div>
+                        <div className="flex flex-col"><span className="text-ui-muted text-xs font-bold uppercase tracking-wider">Fav Item</span><span className="font-bold text-brand-accent truncate max-w-[150px]">{favItem}</span></div>
+                      </div>
                     </div>
                     
                     <div className="flex items-center gap-4 sm:gap-6">
@@ -76,9 +122,14 @@ export default function Customers() {
                            <p className="font-bold text-ui-text text-sm">{lastVisit ? format(new Date(lastVisit), 'MMM dd, yy') : 'Never'}</p>
                         </div>
                       </div>
-                      <button className="text-ui-muted hover:text-ui-text p-2 bg-ui-bg rounded-full border border-ui-border">
-                        {isExpanded ? <ChevronUp size={20}/> : <ChevronDown size={20}/>}
-                      </button>
+                      <div className="flex flex-col gap-2">
+                         <button className="text-ui-muted hover:text-ui-text p-2 bg-ui-bg rounded-full border border-ui-border">
+                           {isExpanded ? <ChevronUp size={20}/> : <ChevronDown size={20}/>}
+                         </button>
+                         <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(customer.id, customerOrders.length > 0, customer.name); }} className="text-ui-muted hover:text-brand-danger p-2 bg-ui-bg rounded-full border border-ui-border transition-colors" title="Delete Customer">
+                           <Trash2 size={20}/>
+                         </button>
+                      </div>
                     </div>
                   </div>
 

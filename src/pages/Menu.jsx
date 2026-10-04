@@ -145,7 +145,10 @@ export default function Menu() {
     await db.recipes.update(recipeId, { ingredients: newIngredients });
   };
 
-  const activeRecipe = selectedItemForRecipe ? recipes.find(r => r.itemId === parseInt(selectedItemForRecipe)) : null;
+  const activeRecipe = selectedItemForRecipe ? (
+    recipes.find(r => String(r.itemId) === String(selectedItemForRecipe) && r.ingredients?.length > 0) ||
+    recipes.find(r => String(r.itemId) === String(selectedItemForRecipe))
+  ) : null;
 
   return (
     <div className="h-full flex flex-col p-4 md:p-8 max-w-7xl mx-auto pb-24 md:pb-8 overflow-hidden">
@@ -163,30 +166,27 @@ export default function Menu() {
       {/* ── ITEMS TAB ── */}
       {activeTab === 'items' && (
         <div className="w-full">
-          <div className="w-full flex flex-col h-fit">
-            <div className="mb-6 flex justify-between items-center gap-3">
-              <div className="flex overflow-x-auto pb-2 gap-3 hide-scrollbar shrink-0 flex-1">
-                
-              {canAdd && <button onClick={() => { resetItemForm(); setIsAddModalOpen(true); }} className="bg-brand-primary text-white px-5 py-2.5 rounded-2xl font-bold hover:shadow-lg active:scale-95 transition-all whitespace-nowrap shrink-0">+ Add Item</button>}
-            </div>
-              <button className={clsx("px-5 py-2.5 rounded-2xl whitespace-nowrap font-semibold transition-all shadow-sm", activeCatFilter === 'all' ? 'bg-brand-primary text-white' : 'bg-ui-card text-ui-muted hover:bg-ui-border')} onClick={() => setActiveCatFilter('all')}>All Items</button>
-              {categories.map(cat => (
-                <button key={cat.id} className={clsx("px-5 py-2.5 rounded-2xl whitespace-nowrap font-semibold transition-all shadow-sm", activeCatFilter === cat.id ? 'bg-brand-primary text-white' : 'bg-ui-card text-ui-muted hover:bg-ui-border')} onClick={() => setActiveCatFilter(cat.id)}>{cat.name}</button>
-              ))}
-            </div>
+          <div className="w-full flex h-full overflow-hidden">
             
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {/* Vertical Categories Sidebar */}
+            <div className="w-32 lg:w-40 flex flex-col gap-2 pr-4 overflow-y-auto hide-scrollbar shrink-0 pb-20 md:pb-0">
+               <button className={clsx("px-4 py-3 rounded-2xl font-semibold transition-all shadow-sm text-left leading-tight text-sm", activeCatFilter === 'all' ? 'bg-brand-primary text-white' : 'bg-ui-card text-ui-muted hover:bg-ui-border')} onClick={() => setActiveCatFilter('all')}>All Items</button>
+               {categories.map(cat => (
+                  <button key={cat.id} className={clsx("px-4 py-3 rounded-2xl font-semibold transition-all shadow-sm text-left leading-tight text-sm", activeCatFilter === cat.id ? 'bg-brand-primary text-white' : 'bg-ui-card text-ui-muted hover:bg-ui-border')} onClick={() => setActiveCatFilter(cat.id)}>{cat.name}</button>
+               ))}
+            </div>
+
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+              <div className="mb-4 flex justify-end shrink-0">
+                {canAdd && <button onClick={() => { resetItemForm(); setIsAddModalOpen(true); }} className="bg-brand-primary text-white px-5 py-2.5 rounded-2xl font-bold hover:shadow-lg active:scale-95 transition-all whitespace-nowrap">+ Add Item</button>}
+              </div>
+              
+              <div className="overflow-y-auto pb-20 md:pb-0 hide-scrollbar flex-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {items.filter(i => activeCatFilter === 'all' || i.categoryId === activeCatFilter).map(item => {
               const cat = categories.find(c => c.id === item.categoryId);
               return (
                 <div key={item.id} className="bg-ui-card border border-ui-border rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                  {item.imageBase64 ? (
-                    <img src={item.imageBase64} alt={item.name} className="w-full h-16 object-contain bg-ui-bg" />
-                  ) : (
-                    <div className="w-full h-16 bg-ui-bg flex items-center justify-center text-4xl font-black text-ui-muted/30">
-                      {item.name.substring(0, 2).toUpperCase()}
-                    </div>
-                  )}
                   <div className="p-4">
                     <div className="flex justify-between items-start">
                       <div>
@@ -204,10 +204,27 @@ export default function Menu() {
                         <span className="text-xs text-brand-accent font-bold bg-brand-accent/10 px-2 py-1 rounded-lg flex items-center gap-1"><Tag size={12}/> {item.variants.length} sizes</span>
                       )}
                     </div>
+                    <div className="mt-4 pt-3 border-t border-ui-border">
+                      {(() => {
+                        const hasRecipe = recipes.some(r => String(r.itemId) === String(item.id) && r.ingredients?.length > 0);
+                        return (
+                          <div className="flex items-center justify-between">
+                            <span className={clsx("text-xs font-bold", hasRecipe ? "text-brand-accent" : "text-ui-muted")}>
+                              {hasRecipe ? "Recipe Configured ✓" : "Recipe Not Configured"}
+                            </span>
+                            <button onClick={() => { setSelectedItemForRecipe(item.id); setActiveTab('recipes'); }} className="text-xs font-bold text-brand-primary hover:underline">
+                              Edit Recipe
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               );
             })}
+            </div>
+            </div>
             </div>
           </div>
 
@@ -222,18 +239,6 @@ export default function Menu() {
                 <div className="p-6 overflow-y-auto hide-scrollbar space-y-4">
 
             <form onSubmit={(e) => { handleAddOrUpdateItem(e); setIsAddModalOpen(false); }} className="space-y-3">
-              {/* Image Upload */}
-              <div onClick={() => imageInputRef.current.click()} className="w-full h-16 rounded-2xl bg-ui-bg border-2 border-dashed border-ui-border flex flex-col items-center justify-center cursor-pointer hover:border-brand-primary hover:bg-brand-primary/5 transition-all overflow-hidden">
-                {newImageBase64 ? (
-                  <img src={newImageBase64} alt="preview" className="w-full h-full object-contain" />
-                ) : (
-                  <>
-                    <ImagePlus size={28} className="text-ui-muted mb-2"/>
-                    <span className="text-xs text-ui-muted font-bold">Upload Photo</span>
-                  </>
-                )}
-              </div>
-              <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
 
               <input type="text" placeholder="Item Name" required value={newItemName} onChange={e => setNewItemName(e.target.value)} className="w-full p-3 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-medium" />
               <select required value={newCatId} onChange={e => setNewCatId(e.target.value)} className="w-full p-3 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-medium">
@@ -317,9 +322,9 @@ export default function Menu() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-1 bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm h-fit">
             <h2 className="text-xl font-bold mb-4 text-ui-text">Select Item</h2>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-2 hide-scrollbar">
               {items.map(item => {
-                const hasRecipe = recipes.find(r => r.itemId === item.id);
+                const hasRecipe = recipes.find(r => String(r.itemId) === String(item.id) && r.ingredients?.length > 0);
                 return (
                   <button key={item.id} onClick={() => setSelectedItemForRecipe(item.id)} className={clsx("w-full text-left p-4 rounded-2xl font-bold transition-all flex items-center justify-between", selectedItemForRecipe === item.id ? "bg-brand-primary text-white" : "bg-ui-bg text-ui-text hover:bg-ui-border")}>
                     <span>{item.name}</span>
@@ -333,47 +338,104 @@ export default function Menu() {
           {selectedItemForRecipe ? (
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm">
-                <h2 className="text-xl font-bold mb-4 text-ui-text flex items-center gap-2"><ChefHat/> Recipe → Inventory Mapping</h2>
-                {(!activeRecipe || activeRecipe.ingredients.length === 0) ? (
-                  <div className="text-ui-muted text-center py-10 bg-ui-bg rounded-2xl border border-ui-border border-dashed font-medium">No ingredients mapped yet.</div>
-                ) : (
-                  <div className="space-y-3">
-                    {activeRecipe.ingredients.map((ing, idx) => {
-                      const invItem = inventory.find(i => i.id === ing.inventoryId);
-                      return (
-                        <div key={idx} className="flex justify-between items-center p-4 bg-ui-bg rounded-2xl border border-ui-border">
-                          <span className="font-bold text-ui-text">{invItem ? invItem.name : 'Unknown'}</span>
-                          <div className="flex items-center gap-4">
-                            <span className="bg-brand-accent/10 text-brand-accent px-3 py-1 rounded-lg font-bold">{ing.qty} {invItem?.unit || 'units'}</span>
-                            <button onClick={() => handleRemoveIngredient(activeRecipe.id, idx)} className="text-ui-muted hover:text-brand-danger transition-colors"><Trash2 size={18}/></button>
+                
+                {(() => {
+                   const selItem = items.find(i => i.id === parseInt(selectedItemForRecipe));
+                   let totalRecipeCost = 0;
+                   const ings = activeRecipe?.ingredients || [];
+                   
+                   ings.forEach(ing => {
+                     const invItem = inventory.find(i => i.id === ing.inventoryId);
+                     if (invItem) {
+                       totalRecipeCost += (invItem.costPerBaseUnit || 0) * ing.qty;
+                     }
+                   });
+
+                   const sellingPrice = selItem?.sellingPrice || 0;
+                   const grossProfit = sellingPrice - totalRecipeCost;
+                   const grossMargin = sellingPrice > 0 ? (grossProfit / sellingPrice) * 100 : 0;
+
+                   return (
+                     <>
+                        <h2 className="text-xl font-black text-ui-text mb-6 uppercase tracking-wider">RECIPE — {selItem?.name} <span className="text-brand-primary ml-2">₹{sellingPrice}</span></h2>
+                        
+                        <div className="overflow-x-auto mb-6">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-ui-bg text-ui-muted text-xs uppercase tracking-wider">
+                                <th className="p-3 font-bold">Ingredient</th>
+                                <th className="p-3 font-bold text-center">Qty</th>
+                                <th className="p-3 font-bold text-center">Unit</th>
+                                <th className="p-3 font-bold text-right">Cost</th>
+                                <th className="p-3"></th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-ui-border text-sm font-medium">
+                              {ings.length === 0 && (
+                                <tr>
+                                  <td colSpan="5" className="p-6 text-center text-ui-muted font-bold">No ingredients configured.</td>
+                                </tr>
+                              )}
+                              {ings.map((ing, idx) => {
+                                const invItem = inventory.find(i => i.id === ing.inventoryId);
+                                const cost = ((invItem?.costPerBaseUnit || 0) * ing.qty).toFixed(2);
+                                return (
+                                  <tr key={idx} className="hover:bg-ui-bg transition-colors">
+                                    <td className="p-3 font-bold text-ui-text">{invItem?.name || 'Unknown'}</td>
+                                    <td className="p-3 text-center font-black text-brand-accent">{ing.qty}</td>
+                                    <td className="p-3 text-center text-ui-muted">{invItem?.baseUnit || invItem?.unit || '-'}</td>
+                                    <td className="p-3 text-right font-bold text-ui-text">₹{cost}</td>
+                                    <td className="p-3 text-right">
+                                      <button onClick={() => handleRemoveIngredient(activeRecipe.id, idx)} className="text-ui-muted hover:text-brand-danger transition-colors p-1"><Trash2 size={16}/></button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-4 bg-ui-bg p-4 rounded-2xl border border-ui-border mb-6">
+                          <div className="flex-1">
+                            <div className="text-xs font-bold text-ui-muted uppercase tracking-wider mb-1">Total Recipe Cost</div>
+                            <div className="text-2xl font-black text-ui-text">₹{totalRecipeCost.toFixed(2)}</div>
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-xs font-bold text-ui-muted uppercase tracking-wider mb-1">Gross Profit</div>
+                            <div className="text-2xl font-black text-brand-accent">₹{grossProfit.toFixed(2)}</div>
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-xs font-bold text-ui-muted uppercase tracking-wider mb-1">Gross Margin %</div>
+                            <div className="text-2xl font-black text-brand-primary">{grossMargin.toFixed(2)}%</div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              <div className="bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm">
-                <h2 className="text-xl font-bold mb-4 text-ui-text">Add Ingredient</h2>
+                     </>
+                   );
+                })()}
+
+                <h3 className="text-sm font-bold text-ui-text uppercase tracking-wider mb-4 border-t border-ui-border pt-6">Add Ingredient</h3>
                 <form onSubmit={handleAddIngredient} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                   <div className="sm:col-span-2">
-                    <label className="block text-sm font-bold text-ui-muted mb-2">Raw Material</label>
-                    <select required value={ingredientId} onChange={e => setIngredientId(e.target.value)} className="w-full p-4 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-medium">
-                      <option value="">Select Inventory Item</option>
-                      {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.currentStock} {i.unit})</option>)}
+                    <label className="block text-xs font-bold text-ui-muted mb-2 uppercase">Raw Material</label>
+                    <select required value={ingredientId} onChange={e => setIngredientId(e.target.value)} className="w-full p-4 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-bold">
+                      <option value="">Search & Select...</option>
+                      {inventory.map(i => <option key={i.id} value={i.id}>{i.name} (Cost: ₹{i.costPerBaseUnit || 0}/{i.baseUnit || i.unit})</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-ui-muted mb-2">Qty to Deduct</label>
-                    <input type="number" step="0.01" required value={ingredientQty} onChange={e => setIngredientQty(e.target.value)} className="w-full p-4 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-medium" placeholder="e.g. 200" />
+                    <label className="block text-xs font-bold text-ui-muted mb-2 uppercase">Quantity</label>
+                    <input type="number" step="0.01" required value={ingredientQty} onChange={e => setIngredientQty(e.target.value)} className="w-full p-4 rounded-2xl bg-ui-bg border border-ui-border focus:ring-2 focus:ring-brand-primary outline-none text-ui-text font-bold" placeholder="e.g. 180" />
                   </div>
-                  <button type="submit" className="sm:col-span-3 w-full bg-brand-primary text-white p-4 rounded-2xl font-bold hover:shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2"><Plus size={20}/> Map Ingredient</button>
+                  <button type="submit" className="sm:col-span-3 w-full bg-brand-primary text-white p-4 rounded-2xl font-bold hover:shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2"><Plus size={20}/> Save Ingredient</button>
                 </form>
               </div>
             </div>
           ) : (
-            <div className="lg:col-span-2 bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm flex items-center justify-center text-ui-muted font-medium py-20 text-center">
-              Select an item to manage its recipe.<br/>Items with <ChefHat size={16} className="inline text-brand-accent mx-1"/> already have recipes mapped.
+            <div className="lg:col-span-2 bg-ui-card p-6 rounded-3xl border border-ui-border shadow-sm flex items-center justify-center text-ui-muted font-bold py-32 text-center text-lg">
+              <div>
+                <ChefHat size={48} className="mx-auto mb-4 text-ui-border" />
+                Select a menu item<br/>to configure its recipe and view costing.
+              </div>
             </div>
           )}
         </div>

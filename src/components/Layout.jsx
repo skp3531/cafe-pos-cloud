@@ -11,9 +11,9 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-ui-bg overflow-hidden text-ui-text">
+    <div className="flex flex-col md:flex-row h-screen w-screen bg-ui-bg overflow-hidden text-ui-text">
       <Sidebar />
-      <main className="flex-1 h-full w-full overflow-hidden relative">
+      <main className="flex-1 h-full w-full overflow-hidden relative pb-[70px] md:pb-0">
         <Outlet />
       </main>
     </div>
